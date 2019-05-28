@@ -1,33 +1,43 @@
-(function(angular) {
+(function (angular, Headroom) {
 
   if(!angular) {
     return;
   }
 
-  ///////////////
-  // Directive //
-  ///////////////
-
-  angular.module('headroom', []).directive('headroom', function() {
+  function headroom(HeadroomService) {
     return {
-      restrict: 'EA',
       scope: {
         tolerance: '=',
         offset: '=',
-        classes: '='
+        classes: '=',
+        scroller: '@'
       },
-      link: function(scope, element) {
+      link: function ($scope, $element) {
         var options = {};
-        angular.forEach(Headroom.options, function(value, key) {
-          options[key] = scope[key] || Headroom.options[key];
-        });
-        var headroom = new Headroom(element[0], options);
-        headroom.init();
-        scope.$on('destroy', function() {
+        var opts = HeadroomService.options;
+        for (var prop in opts) {
+          options[prop] = $scope[prop] || opts[prop];
+        }
+        if ($scope.scroller) {
+          options.scroller = document.querySelector($scope.scroller);
+        }
+        var headroom = new HeadroomService($element[0], options).init();
+        $scope.$on('$destroy', function(){
           headroom.destroy();
         });
       }
     };
-  });
+  }
 
-}(window.angular));
+  headroom.$inject = ['HeadroomService'];
+
+  function HeadroomService() {
+    return Headroom;
+  }
+
+  angular
+    .module('headroom', [])
+    .directive('headroom', headroom)
+    .factory('HeadroomService', HeadroomService);
+
+})(window.angular, window.Headroom);

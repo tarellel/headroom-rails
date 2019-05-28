@@ -4,6 +4,8 @@
 
 License: [MIT License](http://opensource.org/licenses/MIT) (just as headroom.js is)
 
+![](https://badgen.net/rubygems/dt/headroom-rails) ![](https://badgen.net/rubygems/v/headroom-rails) 
+
 ## Installation
 
 Add this line to your application's Gemfile:

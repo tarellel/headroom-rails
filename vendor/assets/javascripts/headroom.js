@@ -1,11 +1,25 @@
 /*!
- * headroom.js v0.6.0 - Give your page some headroom. Hide your header until you need it
- * Copyright (c) 2014 Nick Williams - http://wicky.nillia.ms/headroom.js
+ * headroom.js v0.9.4 - Give your page some headroom. Hide your header until you need it
+ * Copyright (c) 2017 Nick Williams - http://wicky.nillia.ms/headroom.js
  * License: MIT
  */
 
-(function(window, document) {
+(function(root, factory) {
+  'use strict';
 
+  if (typeof define === 'function' && define.amd) {
+    // AMD. Register as an anonymous module.
+    define([], factory);
+  }
+  else if (typeof exports === 'object') {
+    // COMMONJS
+    module.exports = factory();
+  }
+  else {
+    // BROWSER
+    root.Headroom = factory();
+  }
+}(this, function() {
   'use strict';
 
   /* exported features */
@@ -57,6 +71,15 @@
     }
   };
   /**
+   * Check if object is part of the DOM
+   * @constructor
+   * @param {Object} obj element to check
+   */
+  function isDOMElement(obj) {
+    return obj && typeof window !== 'undefined' && (obj === window || obj.nodeType);
+  }
+
+  /**
    * Helper function for extending objects
    */
   function extend (object /*, objectN ... */) {
@@ -72,7 +95,8 @@
       var replacement = arguments[i] || {};
 
       for (key in replacement) {
-        if(typeof result[key] === 'object') {
+        // Recurse into object except if the object is a DOM element
+        if(typeof result[key] === 'object' && ! isDOMElement(result[key])) {
           result[key] = extend(result[key], replacement[key]);
         }
         else {
@@ -104,15 +128,17 @@
 
     this.lastKnownScrollY = 0;
     this.elem             = elem;
-    this.debouncer        = new Debouncer(this.update.bind(this));
     this.tolerance        = normalizeTolerance(options.tolerance);
     this.classes          = options.classes;
     this.offset           = options.offset;
+    this.scroller         = options.scroller;
     this.initialised      = false;
     this.onPin            = options.onPin;
     this.onUnpin          = options.onUnpin;
     this.onTop            = options.onTop;
     this.onNotTop         = options.onNotTop;
+    this.onBottom         = options.onBottom;
+    this.onNotBottom      = options.onNotBottom;
   }
   Headroom.prototype = {
     constructor : Headroom,
@@ -125,6 +151,7 @@
         return;
       }
 
+      this.debouncer = new Debouncer(this.update.bind(this));
       this.elem.classList.add(this.classes.initial);
 
       // defer event registration to handle browser
@@ -141,8 +168,14 @@
       var classes = this.classes;
 
       this.initialised = false;
-      window.removeEventListener('scroll', this.debouncer, false);
-      this.elem.classList.remove(classes.unpinned, classes.pinned, classes.top, classes.initial);
+
+      for (var key in classes) {
+        if(classes.hasOwnProperty(key)) {
+          this.elem.classList.remove(classes[key]);
+        }
+      }
+
+      this.scroller.removeEventListener('scroll', this.debouncer, false);
     },
 
     /**
@@ -153,7 +186,7 @@
       if(!this.initialised){
         this.lastKnownScrollY = this.getScrollY();
         this.initialised = true;
-        window.addEventListener('scroll', this.debouncer, false);
+        this.scroller.addEventListener('scroll', this.debouncer, false);
 
         this.debouncer.handleEvent();
       }
@@ -215,15 +248,42 @@
       }
     },
 
+    bottom : function() {
+      var classList = this.elem.classList,
+        classes = this.classes;
+
+      if(!classList.contains(classes.bottom)) {
+        classList.add(classes.bottom);
+        classList.remove(classes.notBottom);
+        this.onBottom && this.onBottom.call(this);
+      }
+    },
+
+    /**
+     * Handles the not top state
+     */
+    notBottom : function() {
+      var classList = this.elem.classList,
+        classes = this.classes;
+
+      if(!classList.contains(classes.notBottom)) {
+        classList.add(classes.notBottom);
+        classList.remove(classes.bottom);
+        this.onNotBottom && this.onNotBottom.call(this);
+      }
+    },
+
     /**
      * Gets the Y scroll position
      * @see https://developer.mozilla.org/en-US/docs/Web/API/Window.scrollY
      * @return {Number} pixels the page has scrolled along the Y-axis
      */
     getScrollY : function() {
-      return (window.pageYOffset !== undefined)
-        ? window.pageYOffset
-        : (document.documentElement || document.body.parentNode || document.body).scrollTop;
+      return (this.scroller.pageYOffset !== undefined)
+        ? this.scroller.pageYOffset
+        : (this.scroller.scrollTop !== undefined)
+          ? this.scroller.scrollTop
+          : (document.documentElement || document.body.parentNode || document.body).scrollTop;
     },
 
     /**
@@ -238,6 +298,28 @@
     },
 
     /**
+     * Gets the physical height of the DOM element
+     * @param  {Object}  elm the element to calculate the physical height of which
+     * @return {int}     the physical height of the element in pixels
+     */
+    getElementPhysicalHeight : function (elm) {
+      return Math.max(
+        elm.offsetHeight,
+        elm.clientHeight
+      );
+    },
+
+    /**
+     * Gets the physical height of the scroller element
+     * @return {int} the physical height of the scroller element in pixels
+     */
+    getScrollerPhysicalHeight : function () {
+      return (this.scroller === window || this.scroller === document.body)
+        ? this.getViewportHeight()
+        : this.getElementPhysicalHeight(this.scroller);
+    },
+
+    /**
      * Gets the height of the document
      * @see http://james.padolsey.com/javascript/get-document-height-cross-browser/
      * @return {int} the height of the document in pixels
@@ -247,10 +329,33 @@
         documentElement = document.documentElement;
 
       return Math.max(
-          body.scrollHeight, documentElement.scrollHeight,
-          body.offsetHeight, documentElement.offsetHeight,
-          body.clientHeight, documentElement.clientHeight
+        body.scrollHeight, documentElement.scrollHeight,
+        body.offsetHeight, documentElement.offsetHeight,
+        body.clientHeight, documentElement.clientHeight
       );
+    },
+
+    /**
+     * Gets the height of the DOM element
+     * @param  {Object}  elm the element to calculate the height of which
+     * @return {int}     the height of the element in pixels
+     */
+    getElementHeight : function (elm) {
+      return Math.max(
+        elm.scrollHeight,
+        elm.offsetHeight,
+        elm.clientHeight
+      );
+    },
+
+    /**
+     * Gets the height of the scroller element
+     * @return {int} the height of the scroller element in pixels
+     */
+    getScrollerHeight : function () {
+      return (this.scroller === window || this.scroller === document.body)
+        ? this.getDocumentHeight()
+        : this.getElementHeight(this.scroller);
     },
 
     /**
@@ -260,7 +365,7 @@
      */
     isOutOfBounds : function (currentScrollY) {
       var pastTop  = currentScrollY < 0,
-        pastBottom = currentScrollY + this.getViewportHeight() > this.getDocumentHeight();
+        pastBottom = currentScrollY + this.getScrollerPhysicalHeight() > this.getScrollerHeight();
 
       return pastTop || pastBottom;
     },
@@ -318,6 +423,13 @@
         this.notTop();
       }
 
+      if(currentScrollY + this.getViewportHeight() >= this.getScrollerHeight()) {
+        this.bottom();
+      }
+      else {
+        this.notBottom();
+      }
+
       if(this.shouldUnpin(currentScrollY, toleranceExceeded)) {
         this.unpin();
       }
@@ -338,16 +450,18 @@
       down : 0
     },
     offset : 0,
+    scroller: window,
     classes : {
       pinned : 'headroom--pinned',
       unpinned : 'headroom--unpinned',
       top : 'headroom--top',
       notTop : 'headroom--not-top',
+      bottom : 'headroom--bottom',
+      notBottom : 'headroom--not-bottom',
       initial : 'headroom'
     }
   };
   Headroom.cutsTheMustard = typeof features !== 'undefined' && features.rAF && features.bind && features.classList;
 
-  window.Headroom = Headroom;
-
-}(window, document));
+  return Headroom;
+}));
